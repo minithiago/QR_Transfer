@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>QR Transfer — pasar archivos entre móviles sin Bluetooth</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230e1116'/><g fill='%234f9cff'><rect x='5' y='5' width='9' height='9'/><rect x='18' y='5' width='9' height='9'/><rect x='5' y='18' width='9' height='9'/><rect x='18' y='18' width='4' height='4'/><rect x='23' y='23' width='4' height='4'/></g></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <button id="backBtn" class="icon-btn hidden" aria-label="Volver">‹</button>
+  <h1>QR&nbsp;Transfer</h1>
+  <button id="helpBtn" class="icon-btn" aria-label="Ayuda">?</button>
+</header>
+
+<main>
+
+<!-- ───────────────────────── Inicio ───────────────────────── -->
+<section class="screen active" data-screen="home">
+  <p class="lead">Pasa un archivo de un móvil a otro sin Bluetooth, sin cables y sin internet: la pantalla de un teléfono emite el archivo como una secuencia de códigos QR y la cámara del otro lo va reconstruyendo.</p>
+
+  <div class="choices">
+    <button class="choice" data-go="send">
+      <span class="choice-icon">📤</span>
+      <span class="choice-title">Enviar un archivo</span>
+      <span class="choice-sub">Este móvil tiene el archivo y mostrará los códigos</span>
+    </button>
+    <button class="choice" data-go="receive">
+      <span class="choice-icon">📷</span>
+      <span class="choice-title">Recibir un archivo</span>
+      <span class="choice-sub">Este móvil apunta con la cámara y descarga</span>
+    </button>
+  </div>
+
+  <button class="ghost" id="shareBtn">🔗 Abrir esta página en el otro móvil</button>
+
+  <div class="note" id="httpsNote" hidden>
+    ⚠️ La página no se está sirviendo por HTTPS ni desde localhost, así que el navegador
+    <strong>no dejará abrir la cámara</strong>. Mira el README para levantarla con HTTPS.
+  </div>
+</section>
+
+<!-- ───────────────────────── Enviar ───────────────────────── -->
+<section class="screen" data-screen="send">
+
+  <div id="sendSetup">
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" hidden>
+      <span class="dz-icon">📁</span>
+      <span class="dz-main">Elegir archivo</span>
+      <span class="dz-sub">o arrástralo aquí</span>
+    </label>
+
+    <div id="fileCard" class="card hidden">
+      <div class="row"><span class="k">Archivo</span><span class="v" id="fName">—</span></div>
+      <div class="row"><span class="k">Tamaño</span><span class="v" id="fSize">—</span></div>
+      <div class="row"><span class="k">A enviar</span><span class="v" id="fSent">—</span></div>
+      <div class="row"><span class="k">Trozos</span><span class="v" id="fChunks">—</span></div>
+      <div class="row"><span class="k">Tiempo aprox.</span><span class="v" id="fEta">—</span></div>
+    </div>
+
+    <details class="card options" id="optionsCard">
+      <summary>Ajustes de emisión</summary>
+
+      <label class="opt">
+        <span>Densidad del código</span>
+        <select id="optVersion">
+          <option value="8">Baja · 49×49 · cámaras flojas</option>
+          <option value="12">Media · 65×65</option>
+          <option value="16" selected>Alta · 81×81 (recomendada)</option>
+          <option value="20">Máxima · 97×97 · pantallas grandes</option>
+          <option value="24">Extrema · 113×113 · sólo con buena cámara</option>
+        </select>
+      </label>
+
+      <label class="opt">
+        <span>Corrección de errores</span>
+        <select id="optEcc">
+          <option value="L" selected>L · más datos por código</option>
+          <option value="M">M · equilibrada</option>
+          <option value="Q">Q · más tolerante a reflejos</option>
+        </select>
+      </label>
+
+      <label class="opt">
+        <span>Velocidad <output id="optFpsOut">8</output> códigos/s</span>
+        <input type="range" id="optFps" min="1" max="20" step="1" value="8">
+      </label>
+
+      <label class="opt inline">
+        <input type="checkbox" id="optZip" checked>
+        <span>Comprimir antes de enviar (gzip)</span>
+      </label>
+
+      <p class="hint" id="capacityHint"></p>
+    </details>
+
+    <button class="primary" id="startSend" disabled>Empezar a emitir</button>
+  </div>
+
+  <div id="sendLive" class="hidden">
+    <div class="qr-stage">
+      <canvas id="qrCanvas"></canvas>
+    </div>
+    <div class="live-stats">
+      <div><strong id="sPass">1</strong><span>vuelta</span></div>
+      <div><strong id="sFrames">0</strong><span>códigos</span></div>
+      <div><strong id="sRate">0</strong><span>KB/s</span></div>
+      <div><strong id="sTime">0s</strong><span>tiempo</span></div>
+    </div>
+    <p class="hint center">Mantén el otro móvil apuntando a la pantalla hasta que diga <em>completado</em>. Da igual que se pierdan códigos: el emisor no para de mandar combinaciones nuevas.</p>
+    <div class="live-controls">
+      <label class="opt">
+        <span>Velocidad <output id="liveFpsOut">8</output>/s</span>
+        <input type="range" id="liveFps" min="1" max="20" step="1" value="8">
+      </label>
+      <div class="btn-row">
+        <button class="secondary" id="pauseSend">Pausar</button>
+        <button class="secondary danger" id="stopSend">Terminar</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── Recibir ───────────────────────── -->
+<section class="screen" data-screen="receive">
+  <div id="recIdle">
+    <p class="lead">Pulsa el botón y apunta con la cámara a la pantalla del otro móvil. Encuadra el código entero, sin acercarte demasiado.</p>
+    <button class="primary" id="startCam">Abrir cámara</button>
+    <p class="hint" id="camList"></p>
+  </div>
+
+  <div id="recLive" class="hidden">
+    <div class="video-wrap">
+      <video id="video" playsinline muted></video>
+      <div class="reticle"></div>
+    </div>
+
+    <div class="progress">
+      <div class="bar"><div class="bar-fill" id="recBar"></div></div>
+      <div class="progress-label"><span id="recPct">0%</span><span id="recEta"></span></div>
+    </div>
+
+    <div class="card" id="recInfo" hidden>
+      <div class="row"><span class="k">Archivo</span><span class="v" id="rName">—</span></div>
+      <div class="row"><span class="k">Tamaño</span><span class="v" id="rSize">—</span></div>
+      <div class="row"><span class="k">Trozos</span><span class="v" id="rChunks">—</span></div>
+      <div class="row"><span class="k">Lectura</span><span class="v" id="rRate">—</span></div>
+    </div>
+    <p class="hint center" id="recHint">Buscando códigos…</p>
+    <button class="secondary danger" id="stopCam">Cerrar cámara</button>
+  </div>
+
+  <div id="recDone" class="hidden">
+    <div class="done-badge">✓</div>
+    <h2 id="doneName">Archivo recibido</h2>
+    <p class="hint center" id="doneMeta"></p>
+    <div id="preview" class="preview"></div>
+    <a class="primary" id="downloadLink" download>Descargar archivo</a>
+    <button class="secondary" id="againBtn">Recibir otro</button>
+  </div>
+</section>
+
+</main>
+
+<dialog id="shareDlg">
+  <h2>Abre esta página en el otro móvil</h2>
+  <p class="hint">Escanea este código con la cámara normal del otro teléfono: le abrirá esta misma página.</p>
+  <div class="share-qr"><canvas id="shareCanvas"></canvas></div>
+  <p class="share-url" id="shareUrl"></p>
+  <p class="note" id="shareLocal" hidden>Esta dirección es local de este dispositivo, así que el otro móvil no podrá abrirla. Usa la dirección pública (por ejemplo la de GitHub Pages) o la IP de tu red.</p>
+  <div class="btn-row">
+    <button class="secondary" id="shareNative" hidden>Compartir enlace</button>
+    <button class="secondary" id="shareClose">Cerrar</button>
+  </div>
+</dialog>
+
+<dialog id="helpDlg">
+  <h2>Cómo funciona</h2>
+  <ol>
+    <li>Los dos móviles abren esta misma página (no hace falta que estén en la misma red mientras la página ya esté cargada).</li>
+    <li>El que tiene el archivo pulsa <strong>Enviar</strong>, lo elige y empieza a emitir códigos QR sin parar.</li>
+    <li>El otro pulsa <strong>Recibir</strong> y le apunta con la cámara hasta llegar al 100%.</li>
+  </ol>
+  <h3>Consejos</h3>
+  <ul>
+    <li>Brillo de la pantalla emisora al máximo y evita reflejos.</li>
+    <li>Encuadra el código entero, a unos 15–25 cm, y no muevas el móvil.</li>
+    <li>Si no avanza, baja la <em>densidad</em> o la <em>velocidad</em> en los ajustes del emisor.</li>
+    <li>El archivo se trocea con un <em>código fountain</em>: no importa qué códigos se pierdan, sólo cuántos se leen en total (~1,3 × el número de trozos).</li>
+  </ul>
+  <h3>Límites</h3>
+  <p>El canal da del orden de 3–8 KB/s. Va perfecto para documentos, fotos comprimidas o textos; un vídeo de 50 MB tardaría horas.</p>
+  <form method="dialog"><button class="secondary">Cerrar</button></form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="vendor/qrcode.js"></script>
+<script src="vendor/jsQR.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

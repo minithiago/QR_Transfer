@@ -1,0 +1,12 @@
+{
+  "name": "qr-transfer",
+  "version": "1.0.0",
+  "description": "Pasar archivos de un movil a otro con codigos QR, sin Bluetooth ni red",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node build.mjs",
+    "test": "node test/sim.mjs && node test/e2e.mjs"
+  }
+}
